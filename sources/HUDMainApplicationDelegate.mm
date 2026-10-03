@@ -163,6 +163,9 @@
     [containerView layoutIfNeeded];
 
     espView.frame = containerView.bounds;
+    NSLog(@"[ESP_LOG] [SCREEN] curOrient:%ld | screenBounds:%@ | winFrame:%@ | winBounds:%@ | containerBounds:%@ | espFrame:%@",
+          (long)curOrientation, NSStringFromCGRect(screenBounds), NSStringFromCGRect(self.window.frame),
+          NSStringFromCGRect(self.window.bounds), NSStringFromCGRect(containerView.bounds), NSStringFromCGRect(espView.frame));
 
     _windowHostingController = [[objc_getClass("SBSAccessibilityWindowHostingController") alloc] init];
     unsigned int _contextId = [self.window _contextId];

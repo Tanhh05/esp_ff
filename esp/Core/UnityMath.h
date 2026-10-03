@@ -13,33 +13,33 @@ struct Matrix4x4 {
 class UnityMath {
 public:
     static bool WorldToScreen(Vector3 worldPos, Matrix4x4 viewMatrix, float screenWidth, float screenHeight, Vector2 &screenPos) {
-        // Free Fire ViewMatrix on iOS ARM64 (Row-Major):
-        // W is in row 4: m[12] * x + m[13] * y + m[14] * z + m[15]
-        // X is in row 1: m[0] * x + m[1] * y + m[2] * z + m[3]
-        // Y is in row 2: m[4] * x + m[5] * y + m[6] * z + m[7]
-        float w = viewMatrix.m[12] * worldPos.x + viewMatrix.m[13] * worldPos.y + viewMatrix.m[14] * worldPos.z + viewMatrix.m[15];
+        // Unity Native Column-Major WorldToClipMatrix (verified via UnityFramework ASM @ 0xBF00EC)
+        // W: Row 3 = m[3]*x + m[7]*y + m[11]*z + m[15]
+        float w = viewMatrix.m[3] * worldPos.x + viewMatrix.m[7] * worldPos.y + viewMatrix.m[11] * worldPos.z + viewMatrix.m[15];
         
-        // Check if point is behind or too close to camera
-        if (w <= 0.01f) {
+        // Point is behind or too close to camera plane
+        if (w <= 0.05f) {
             return false;
         }
 
-        float clipX = viewMatrix.m[0] * worldPos.x + viewMatrix.m[1] * worldPos.y + viewMatrix.m[2] * worldPos.z + viewMatrix.m[3];
-        float clipY = viewMatrix.m[4] * worldPos.x + viewMatrix.m[5] * worldPos.y + viewMatrix.m[6] * worldPos.z + viewMatrix.m[7];
+        // X: Row 0 = m[0]*x + m[4]*y + m[8]*z + m[12]
+        float clipX = viewMatrix.m[0] * worldPos.x + viewMatrix.m[4] * worldPos.y + viewMatrix.m[8] * worldPos.z + viewMatrix.m[12];
+        // Y: Row 1 = m[1]*x + m[5]*y + m[9]*z + m[13]
+        float clipY = viewMatrix.m[1] * worldPos.x + viewMatrix.m[5] * worldPos.y + viewMatrix.m[9] * worldPos.z + viewMatrix.m[13];
 
         float ndcX = clipX / w;
         float ndcY = clipY / w;
 
-        // Convert Normalized Device Coordinates (NDC) to Screen Coordinates
+        // Convert Normalized Device Coordinates (NDC) to Screen Coordinates in UIKit space
         float x = (screenWidth / 2.0f) + (ndcX * (screenWidth / 2.0f));
         float y = (screenHeight / 2.0f) - (ndcY * (screenHeight / 2.0f));
 
         screenPos.x = x;
         screenPos.y = y;
 
-        // Filter out extreme off-screen points
-        if (screenPos.x < -200.0f || screenPos.x > screenWidth + 200.0f ||
-            screenPos.y < -200.0f || screenPos.y > screenHeight + 200.0f) {
+        // Filter out points far off-screen
+        if (screenPos.x < -150.0f || screenPos.x > screenWidth + 150.0f ||
+            screenPos.y < -150.0f || screenPos.y > screenHeight + 150.0f) {
             return false;
         }
 

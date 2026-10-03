@@ -15,7 +15,8 @@ namespace Offsets {
     constexpr uint64_t MatchGame_CameraControllerManager = 0xD8;
     constexpr uint64_t CameraControllerManager_Camera = 0x20;
     constexpr uint64_t Camera_ViewMatrix = 0x10;
-    constexpr uint64_t Camera_ViewMatrix_Array = 0xD8;
+    // Native Camera WorldToClipMatrix (Combined View-Projection 4x4 matrix) at 0x100
+    constexpr uint64_t Camera_ViewMatrix_Array = 0x100;
 
     // 3. Match -> Players & LocalPlayer
     constexpr uint64_t Match_LocalPlayer = 0xD8;

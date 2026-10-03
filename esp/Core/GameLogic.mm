@@ -187,11 +187,29 @@ void GameLogic::updateData(float screenWidth, float screenHeight) {
               viewMatrix.m[12], viewMatrix.m[13], viewMatrix.m[14], viewMatrix.m[15]);
     }
 
-    uint8_t localTeamID = 0;
+    auto getPlayerTeamID = [](mach_port_t task, uintptr_t p) -> uint8_t {
+        if (!p) return 255;
+        // 1. Check inlined struct BEADLMGGGGL (0x408 + 0x08 = 0x410)
+        uint8_t inlineTeam = MemoryUtils::read<uint8_t>(task, p + Offsets::Player_PlayerIDStruct + 0x08);
+        if (inlineTeam > 0 && inlineTeam < 250) return inlineTeam;
+
+        // 2. Check if 0x408 is an object pointer
+        uintptr_t idStruct = StripPAC(MemoryUtils::read<uintptr_t>(task, p + Offsets::Player_PlayerIDStruct));
+        if (idStruct > 0x100000000ULL && idStruct < 0x7FFFFFFFFFFFULL) {
+            uint8_t ptrTeam = MemoryUtils::read<uint8_t>(task, idStruct + Offsets::BEADLMGGGGL_TeamID);
+            if (ptrTeam > 0 && ptrTeam < 250) return ptrTeam;
+        }
+
+        // 3. Fallback direct 0x420
+        uint8_t fbTeam = MemoryUtils::read<uint8_t>(task, p + Offsets::Player_PlayerIDStruct + Offsets::BEADLMGGGGL_TeamID);
+        return fbTeam;
+    };
+
+    uint8_t localTeamID = 255;
     Vector3 localPos{0, 0, 0};
 
     if (localPlayer) {
-        localTeamID = MemoryUtils::read<uint8_t>(gameTask, localPlayer + Offsets::Player_PlayerIDStruct + Offsets::BEADLMGGGGL_TeamID);
+        localTeamID = getPlayerTeamID(gameTask, localPlayer);
         uintptr_t localCamTF = StripPAC(MemoryUtils::read<uintptr_t>(gameTask, localPlayer + Offsets::Player_MainCameraTransform));
         if (localCamTF) {
             localPos = UnityMath::GetTransformPosition(gameTask, localCamTF);
@@ -205,12 +223,46 @@ void GameLogic::updateData(float screenWidth, float screenHeight) {
         return;
     }
 
+    static int teamLogThrottle = 0;
+    bool shouldLogTeam = (++teamLogThrottle % 60 == 0);
+
     for (uintptr_t player : playerPointers) {
         if (!player || player == localPlayer) continue;
 
-        // Team ID Filter (Only filter if both team IDs are valid and match)
-        uint8_t teamID = MemoryUtils::read<uint8_t>(gameTask, player + Offsets::Player_PlayerIDStruct + Offsets::BEADLMGGGGL_TeamID);
-        if (localTeamID != 0 && teamID != 0 && teamID == localTeamID) continue;
+        // Team ID Filter
+        uint8_t teamID = getPlayerTeamID(gameTask, player);
+
+        if (shouldLogTeam) {
+            uint8_t localBytes[32] = {0};
+            uint8_t enemyBytes[32] = {0};
+            for (int b = 0; b < 32; b++) {
+                localBytes[b] = MemoryUtils::read<uint8_t>(gameTask, localPlayer + 0x408 + b);
+                enemyBytes[b] = MemoryUtils::read<uint8_t>(gameTask, player + 0x408 + b);
+            }
+            NSLog(@"[ESP_LOG] [HEX_LOCAL 0x408..0x427] %02x %02x %02x %02x | %02x %02x %02x %02x | %02x %02x %02x %02x | %02x %02x %02x %02x || %02x %02x %02x %02x | %02x %02x %02x %02x | %02x %02x %02x %02x | %02x %02x %02x %02x",
+                  localBytes[0], localBytes[1], localBytes[2], localBytes[3],
+                  localBytes[4], localBytes[5], localBytes[6], localBytes[7],
+                  localBytes[8], localBytes[9], localBytes[10], localBytes[11],
+                  localBytes[12], localBytes[13], localBytes[14], localBytes[15],
+                  localBytes[16], localBytes[17], localBytes[18], localBytes[19],
+                  localBytes[20], localBytes[21], localBytes[22], localBytes[23],
+                  localBytes[24], localBytes[25], localBytes[26], localBytes[27],
+                  localBytes[28], localBytes[29], localBytes[30], localBytes[31]);
+            NSLog(@"[ESP_LOG] [HEX_ENEMY 0x408..0x427] %02x %02x %02x %02x | %02x %02x %02x %02x | %02x %02x %02x %02x | %02x %02x %02x %02x || %02x %02x %02x %02x | %02x %02x %02x %02x | %02x %02x %02x %02x | %02x %02x %02x %02x",
+                  enemyBytes[0], enemyBytes[1], enemyBytes[2], enemyBytes[3],
+                  enemyBytes[4], enemyBytes[5], enemyBytes[6], enemyBytes[7],
+                  enemyBytes[8], enemyBytes[9], enemyBytes[10], enemyBytes[11],
+                  enemyBytes[12], enemyBytes[13], enemyBytes[14], enemyBytes[15],
+                  enemyBytes[16], enemyBytes[17], enemyBytes[18], enemyBytes[19],
+                  enemyBytes[20], enemyBytes[21], enemyBytes[22], enemyBytes[23],
+                  enemyBytes[24], enemyBytes[25], enemyBytes[26], enemyBytes[27],
+                  enemyBytes[28], enemyBytes[29], enemyBytes[30], enemyBytes[31]);
+        }
+
+        // If localTeamID and player teamID match and are valid (> 0 && < 250), skip teammate
+        if (localTeamID > 0 && localTeamID < 250 && teamID > 0 && teamID < 250 && localTeamID == teamID) {
+            continue;
+        }
 
         // Bones (Head 0x6A0 -> 0x10 & RightToe 0x6F0 -> 0x10)
         uintptr_t headNode = StripPAC(MemoryUtils::read<uintptr_t>(gameTask, player + Offsets::Player_HeadNode));
@@ -237,8 +289,8 @@ void GameLogic::updateData(float screenWidth, float screenHeight) {
             if (rootTF) {
                 Vector3 rootPos = UnityMath::GetTransformPosition(gameTask, rootTF);
                 if (rootPos.x != 0 || rootPos.y != 0 || rootPos.z != 0) {
-                    headPos = Vector3{rootPos.x, rootPos.y + 0.8f, rootPos.z};
-                    toePos = Vector3{rootPos.x, rootPos.y - 0.9f, rootPos.z};
+                    headPos = Vector3{rootPos.x, rootPos.y + 0.85f, rootPos.z};
+                    toePos = Vector3{rootPos.x, rootPos.y - 0.90f, rootPos.z};
                     hasBones = true;
                 }
             }
@@ -246,14 +298,23 @@ void GameLogic::updateData(float screenWidth, float screenHeight) {
 
         if (!hasBones) continue;
 
+        // Auto height calibration: If toe bone is missing or LOD flattened at long distance (<1.0m difference)
+        float boneDist = fabsf(headPos.y - toePos.y);
+        if (boneDist < 0.8f || boneDist > 2.6f) {
+            toePos = Vector3{headPos.x, headPos.y - 1.75f, headPos.z};
+        }
+
         Vector2 headScreen, toeScreen;
         bool headVis = UnityMath::WorldToScreen(headPos, viewMatrix, screenWidth, screenHeight, headScreen);
         bool toeVis = UnityMath::WorldToScreen(toePos, viewMatrix, screenWidth, screenHeight, toeScreen);
 
         static int playerDebugThrottle = 0;
-        if (++playerDebugThrottle % 60 == 0) {
-            NSLog(@"[ESP_LOG] [PLAYER_DBG] localTeam:%d | enemyTeam:%d | head:(%.1f, %.1f, %.1f) | vis:%d,%d | headScr:(%.1f, %.1f)",
-                  localTeamID, teamID, headPos.x, headPos.y, headPos.z, (int)headVis, (int)toeVis, headScreen.x, headScreen.y);
+        if (++playerDebugThrottle % 30 == 0) {
+            float w = viewMatrix.m[3] * headPos.x + viewMatrix.m[7] * headPos.y + viewMatrix.m[11] * headPos.z + viewMatrix.m[15];
+            float clipX = viewMatrix.m[0] * headPos.x + viewMatrix.m[4] * headPos.y + viewMatrix.m[8] * headPos.z + viewMatrix.m[12];
+            float clipY = viewMatrix.m[1] * headPos.x + viewMatrix.m[5] * headPos.y + viewMatrix.m[9] * headPos.z + viewMatrix.m[13];
+            NSLog(@"[ESP_LOG] [PLAYER_DBG] localTeam:%d | enemyTeam:%d | head:(%.1f, %.1f, %.1f) | vis:%d,%d | headScr:(%.1f, %.1f) | w:%.2f | clip:(%.1f, %.1f) | scr:(%.0f, %.0f)",
+                  localTeamID, teamID, headPos.x, headPos.y, headPos.z, (int)headVis, (int)toeVis, headScreen.x, headScreen.y, w, clipX, clipY, screenWidth, screenHeight);
         }
 
         if (!headVis && !toeVis) continue;

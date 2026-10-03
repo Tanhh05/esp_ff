@@ -48,4 +48,8 @@ after-package::
 	@mv $(APPLICATION_NAME).tipa packages/
 	@echo "[*] Build completed successfully: packages/$(APPLICATION_NAME).tipa"
 
+log:
+	@./debug_log.sh
+
+
 

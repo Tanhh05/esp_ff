@@ -83,80 +83,97 @@
     const auto& players = GameLogic::getInstance().getPlayers();
     CGPoint topCenter = CGPointMake(rect.size.width / 2.0f, 0.0f);
 
+    static int drawThrottle = 0;
+    if (++drawThrottle % 60 == 1) {
+        NSLog(@"[ESP_LOG] [DRAW_RECT] rect:(%.1f, %.1f) | bounds:(%.1f, %.1f) | frame:(%.1f, %.1f) | players:%zu",
+              rect.size.width, rect.size.height, self.bounds.size.width, self.bounds.size.height, self.frame.size.width, self.frame.size.height, players.size());
+    }
+
     for (const auto& p : players) {
         if (!p.isVisibleOnScreen) continue;
 
         // Screen Y: top of screen is 0, bottom is screenHeight.
-        // Head is higher up in 3D world than toe, so headScreen.y < toeScreen.y in UIKit coordinates.
         float topY = MIN(p.headScreenPos.y, p.toeScreenPos.y);
         float bottomY = MAX(p.headScreenPos.y, p.toeScreenPos.y);
 
         float height = bottomY - topY;
-        if (height < 10.0f) height = 10.0f;
+        if (height < 18.0f) height = 18.0f;
         if (height > rect.size.height * 1.5f) continue;
 
-        // Add padding around head and feet for perfect box wrapping
-        float boxPadding = height * 0.15f;
+        // Natural human proportions (width ~ 0.48 of height)
+        float boxPadding = height * 0.08f;
         float boxY = topY - boxPadding;
-        float boxHeight = height + (boxPadding * 1.8f);
-        float boxWidth = boxHeight * 0.55f;
+        float boxHeight = height + (boxPadding * 1.5f);
+        float boxWidth = boxHeight * 0.48f;
+        if (boxWidth < 9.0f) boxWidth = 9.0f;
 
         float boxX = p.headScreenPos.x - (boxWidth / 2.0f);
 
         // Skip any points outside visible screen range
-        if (p.headScreenPos.x < -100.0f || p.headScreenPos.x > rect.size.width + 100.0f ||
-            topY < -100.0f || topY > rect.size.height + 100.0f) {
+        if (p.headScreenPos.x < -120.0f || p.headScreenPos.x > rect.size.width + 120.0f ||
+            topY < -120.0f || topY > rect.size.height + 120.0f) {
             continue;
         }
 
         // 1. Line ESP (Red Line from Top-Center to Head)
         if (self.lineEnabled) {
-            CGContextSetStrokeColorWithColor(context, [UIColor colorWithRed:1.0 green:0.2 blue:0.2 alpha:0.85].CGColor);
-            CGContextSetLineWidth(context, 1.5f);
+            CGContextSetStrokeColorWithColor(context, [UIColor colorWithRed:1.0f green:0.25f blue:0.25f alpha:0.85f].CGColor);
+            CGContextSetLineWidth(context, 1.2f);
             CGContextMoveToPoint(context, topCenter.x, topCenter.y);
-            CGContextAddLineToPoint(context, p.headScreenPos.x, topY);
+            CGContextAddLineToPoint(context, p.headScreenPos.x, boxY);
             CGContextStrokePath(context);
         }
 
         // 2. Box ESP (Green Box around body)
         if (self.boxEnabled) {
-            CGContextSetStrokeColorWithColor(context, [UIColor colorWithRed:0.0 green:1.0 blue:0.4 alpha:0.95].CGColor);
-            CGContextSetLineWidth(context, 2.0f);
+            CGContextSetStrokeColorWithColor(context, [UIColor colorWithRed:0.0f green:1.0f blue:0.4f alpha:0.95f].CGColor);
+            CGContextSetLineWidth(context, 1.5f);
             CGContextAddRect(context, CGRectMake(boxX, boxY, boxWidth, boxHeight));
             CGContextStrokePath(context);
         }
 
-        // 3. Health Bar
+        // 3. Health Bar (Sleek vertical bar on left of box)
         if (self.healthEnabled) {
             float healthRatio = (float)p.currentHP / (float)p.maxHP;
             if (healthRatio > 1.0f) healthRatio = 1.0f;
             if (healthRatio < 0.0f) healthRatio = 0.0f;
 
-            float barWidth = 3.5f;
-            float barX = boxX - 7.0f;
+            float barWidth = 2.0f;
+            float barX = boxX - 4.5f;
             float barHeight = boxHeight * healthRatio;
             float barY = boxY + (boxHeight - barHeight);
 
-            // Background Bar
-            CGContextSetFillColorWithColor(context, [UIColor colorWithWhite:0.1 alpha:0.6].CGColor);
+            // Dark background track
+            CGContextSetFillColorWithColor(context, [UIColor colorWithWhite:0.0f alpha:0.6f].CGColor);
             CGContextFillRect(context, CGRectMake(barX, boxY, barWidth, boxHeight));
 
-            // Green/Red Health Bar
-            UIColor *healthColor = [UIColor colorWithRed:(1.0f - healthRatio) green:healthRatio blue:0.0f alpha:0.95f];
+            // Color gradient: Green -> Yellow -> Red
+            UIColor *healthColor;
+            if (healthRatio > 0.5f) {
+                healthColor = [UIColor colorWithRed:2.0f * (1.0f - healthRatio) green:1.0f blue:0.0f alpha:0.95f];
+            } else {
+                healthColor = [UIColor colorWithRed:1.0f green:2.0f * healthRatio blue:0.0f alpha:0.95f];
+            }
             CGContextSetFillColorWithColor(context, healthColor.CGColor);
             CGContextFillRect(context, CGRectMake(barX, barY, barWidth, barHeight));
         }
 
-        // 4. Nickname & Distance
+        // 4. Nickname & Distance (Neat pill background)
         if (self.nameEnabled) {
             NSString *infoStr = [NSString stringWithFormat:@"%s [%.0fm]", p.name.c_str(), p.distance];
             NSDictionary *atts = @{
-                NSFontAttributeName: [UIFont boldSystemFontOfSize:11.0f],
+                NSFontAttributeName: [UIFont boldSystemFontOfSize:10.0f],
                 NSForegroundColorAttributeName: [UIColor whiteColor],
-                NSBackgroundColorAttributeName: [UIColor colorWithWhite:0.0f alpha:0.5f]
             };
             CGSize strSize = [infoStr sizeWithAttributes:atts];
-            CGPoint textPos = CGPointMake(p.headScreenPos.x - (strSize.width / 2.0f), boxY - strSize.height - 2.0f);
+            CGPoint textPos = CGPointMake(p.headScreenPos.x - (strSize.width / 2.0f), boxY - strSize.height - 3.0f);
+
+            CGRect bgRect = CGRectMake(textPos.x - 3.0f, textPos.y - 1.0f, strSize.width + 6.0f, strSize.height + 2.0f);
+            UIBezierPath *bgPath = [UIBezierPath bezierPathWithRoundedRect:bgRect cornerRadius:3.0f];
+            CGContextSetFillColorWithColor(context, [UIColor colorWithWhite:0.0f alpha:0.65f].CGColor);
+            CGContextAddPath(context, bgPath.CGPath);
+            CGContextFillPath(context);
+
             [infoStr drawAtPoint:textPos withAttributes:atts];
         }
     }
