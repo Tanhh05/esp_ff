@@ -27,6 +27,19 @@ public:
         kern_return_t kr = vm_read_overwrite(task, (vm_address_t)address, read_size, (vm_address_t)buffer, &read_size);
         return kr == KERN_SUCCESS;
     }
+
+    template <typename T>
+    static bool write(mach_port_t task, uintptr_t address, const T &data) {
+        if (!task || !address) return false;
+        kern_return_t kr = vm_write(task, (vm_address_t)address, (vm_offset_t)&data, (mach_msg_type_number_t)sizeof(T));
+        return kr == KERN_SUCCESS;
+    }
+
+    static bool write_raw(mach_port_t task, uintptr_t address, const void *buffer, size_t size) {
+        if (!task || !address || !buffer) return false;
+        kern_return_t kr = vm_write(task, (vm_address_t)address, (vm_offset_t)buffer, (mach_msg_type_number_t)size);
+        return kr == KERN_SUCCESS;
+    }
 };
 
 #endif // MEMORY_UTILS_H

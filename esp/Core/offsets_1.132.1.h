@@ -43,6 +43,11 @@ namespace Offsets {
     constexpr uint64_t IPRIDataPool_Array = 0x10;
     constexpr uint64_t IPRIDataPool_Item = 0x20;
     constexpr uint64_t IPRIDataPool_Value = 0x18;
+
+    // 7. Weapon & Silent Aim Offsets
+    constexpr uint64_t Player_WeaponManager = 0x518;
+    constexpr uint64_t Player_CurrentWeapon = 0x520;
+    constexpr uint64_t Player_WeaponController = 0x538;
 }
 
 #endif // OFFSETS_1_132_1_H

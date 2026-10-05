@@ -123,6 +123,100 @@ public:
 
         return result;
     }
+
+    struct Quaternion {
+        float x, y, z, w;
+    };
+
+    static inline Quaternion LookRotation(Vector3 forward) {
+        float mag = sqrtf(forward.x * forward.x + forward.y * forward.y + forward.z * forward.z);
+        if (mag < 0.0001f) return Quaternion{0.0f, 0.0f, 0.0f, 1.0f};
+        forward.x /= mag;
+        forward.y /= mag;
+        forward.z /= mag;
+
+        Vector3 up{0.0f, 1.0f, 0.0f};
+        if (fabsf(forward.y) > 0.999f) {
+            up = Vector3{0.0f, 0.0f, (forward.y > 0.0f) ? -1.0f : 1.0f};
+        }
+
+        Vector3 right{
+            up.y * forward.z - up.z * forward.y,
+            up.z * forward.x - up.x * forward.z,
+            up.x * forward.y - up.y * forward.x
+        };
+        float rMag = sqrtf(right.x * right.x + right.y * right.y + right.z * right.z);
+        if (rMag > 0.0001f) {
+            right.x /= rMag; right.y /= rMag; right.z /= rMag;
+        }
+
+        up = Vector3{
+            forward.y * right.z - forward.z * right.y,
+            forward.z * right.x - forward.x * right.z,
+            forward.x * right.y - forward.y * right.x
+        };
+
+        float m00 = right.x, m01 = up.x, m02 = forward.x;
+        float m10 = right.y, m11 = up.y, m12 = forward.y;
+        float m20 = right.z, m21 = up.z, m22 = forward.z;
+
+        float tr = m00 + m11 + m22;
+        Quaternion q;
+        if (tr > 0.0f) {
+            float s = sqrtf(tr + 1.0f) * 2.0f;
+            q.w = 0.25f * s;
+            q.x = (m21 - m12) / s;
+            q.y = (m02 - m20) / s;
+            q.z = (m10 - m01) / s;
+        } else if ((m00 > m11) && (m00 > m22)) {
+            float s = sqrtf(1.0f + m00 - m11 - m22) * 2.0f;
+            q.w = (m21 - m12) / s;
+            q.x = 0.25f * s;
+            q.y = (m01 + m10) / s;
+            q.z = (m02 + m20) / s;
+        } else if (m11 > m22) {
+            float s = sqrtf(1.0f + m11 - m00 - m22) * 2.0f;
+            q.w = (m02 - m20) / s;
+            q.x = (m01 + m10) / s;
+            q.y = 0.25f * s;
+            q.z = (m12 + m21) / s;
+        } else {
+            float s = sqrtf(1.0f + m22 - m00 - m11) * 2.0f;
+            q.w = (m10 - m01) / s;
+            q.x = (m02 + m20) / s;
+            q.y = (m12 + m21) / s;
+            q.z = 0.25f * s;
+        }
+        return q;
+    }
+
+    static bool SetTransformRotation(mach_port_t task, uintptr_t transformPtr, Quaternion rot) {
+        if (!task || !transformPtr) return false;
+
+        auto stripPAC = [](uintptr_t ptr) -> uintptr_t {
+            if (!ptr) return 0;
+            return ptr & 0x0000007FFFFFFFFFULL;
+        };
+
+        uintptr_t nativeTF = stripPAC(MemoryUtils::read<uintptr_t>(task, transformPtr + 0x10));
+        if (!nativeTF || nativeTF < 0x100000000) {
+            nativeTF = transformPtr;
+        }
+
+        uintptr_t matrix = stripPAC(MemoryUtils::read<uintptr_t>(task, nativeTF + 0x38));
+        int32_t index = MemoryUtils::read<int32_t>(task, nativeTF + 0x40);
+        if (!matrix || index < 0 || index > 100000) {
+            return false;
+        }
+
+        uintptr_t matrix_list = stripPAC(MemoryUtils::read<uintptr_t>(task, matrix + 0x18));
+        if (!matrix_list) return false;
+
+        // Offset of rotX in TMatrix is +0x10 (after posX, posY, posZ, posW)
+        uintptr_t rotAddr = matrix_list + (index * 48) + 16;
+        float rotBuf[4] = {rot.x, rot.y, rot.z, rot.w};
+        return MemoryUtils::write_raw(task, rotAddr, rotBuf, sizeof(rotBuf));
+    }
 };
 
 #endif // UNITY_MATH_H

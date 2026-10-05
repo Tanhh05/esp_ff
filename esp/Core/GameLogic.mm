@@ -2,6 +2,7 @@
 #include "MemoryUtils.h"
 #include "offsets_1.132.1.h"
 #import <Foundation/Foundation.h>
+#import "../drawing_view/esp.h"
 #include <iostream>
 
 bool GameLogic::initialize() {
@@ -342,6 +343,17 @@ void GameLogic::updateData(float screenWidth, float screenHeight) {
         std::string nickname = readIl2CppString(namePtr);
         if (nickname.empty()) nickname = "Enemy";
 
+        // Filter out non-player entities (vehicles, props, etc.)
+        bool isVehicle = false;
+        const char *vehNames[] = {"BattleTrike", "MonsterTruck", "Motorbike", "Pickup", "Amphibian", "SportsCar", "Bike", "Jeep", "TukTuk", "Vehicle", "Boat", "Crows", NULL};
+        for (int v = 0; vehNames[v] != NULL; v++) {
+            if (nickname.find(vehNames[v]) != std::string::npos) {
+                isVehicle = true;
+                break;
+            }
+        }
+        if (isVehicle) continue;
+
         PlayerData pd;
         pd.headWorldPos = headPos;
         pd.toeWorldPos = toePos;
@@ -357,10 +369,64 @@ void GameLogic::updateData(float screenWidth, float screenHeight) {
         players.push_back(pd);
     }
 
+    // 8. Smart Aim Lock Target Selection (100% Safe Read-Only Mode)
+    ESP_View *espView = [ESP_View sharedView];
+    if (espView && espView.aimbotEnabled && !players.empty()) {
+        PlayerData bestTarget;
+        Vector2 sCenter = Vector2{screenWidth / 2.0f, screenHeight / 2.0f};
+        float aimFov = espView.aimFov;
+        int aimBone = (int)espView.aimBone;
+
+        if (getBestTarget(sCenter, aimFov, aimBone, bestTarget)) {
+            static int probeThrottle = 0;
+            if (++probeThrottle % 30 == 0) {
+                NSLog(@"[ESP_LOG] [SMART_AIM_LOCK] Target: %s (dist:%.1fm) -> HeadScreen:(%.1f, %.1f)",
+                      bestTarget.name.c_str(), bestTarget.distance, bestTarget.headScreenPos.x, bestTarget.headScreenPos.y);
+            }
+        }
+    }
+
     char statusBuf[128];
     snprintf(statusBuf, sizeof(statusBuf), "Active ESP: %zu Players", players.size());
     statusMsg = statusBuf;
 }
 
+bool GameLogic::getBestTarget(Vector2 screenCenter, float fovRadius, int boneType, PlayerData& outTarget) {
+    float minDistance = fovRadius;
+    bool found = false;
 
+    for (const auto& p : players) {
+        if (!p.isVisibleOnScreen) continue;
+        if (p.currentHP <= 0) continue; // Skip dead targets
 
+        Vector2 targetScreenPos = p.headScreenPos;
+        if (boneType == 1) {
+            // Chest is roughly 35% down from head to toe
+            targetScreenPos.x = (p.headScreenPos.x + p.toeScreenPos.x) * 0.5f;
+            targetScreenPos.y = p.headScreenPos.y + (p.toeScreenPos.y - p.headScreenPos.y) * 0.35f;
+        }
+
+        float dx = targetScreenPos.x - screenCenter.x;
+        float dy = targetScreenPos.y - screenCenter.y;
+        float dist = sqrtf(dx * dx + dy * dy);
+
+        if (dist <= fovRadius && dist < minDistance) {
+            minDistance = dist;
+            outTarget = p;
+            found = true;
+        }
+    }
+    return found;
+}
+
+Vector3 GameLogic::calculateAngle(Vector3 localPos, Vector3 targetPos) {
+    Vector3 delta = targetPos - localPos;
+    float hyp = sqrtf(delta.x * delta.x + delta.z * delta.z);
+    
+    // Euler angles in degrees
+    float pitch = -atan2f(delta.y, hyp) * (180.0f / (float)M_PI);
+    float yaw = atan2f(delta.x, delta.z) * (180.0f / (float)M_PI);
+    if (yaw < 0.0f) yaw += 360.0f;
+    
+    return Vector3{pitch, yaw, 0.0f};
+}

@@ -15,12 +15,20 @@ struct Vector3 {
         float dz = z - other.z;
         return std::sqrt(dx * dx + dy * dy + dz * dz);
     }
+
+    Vector3 operator-(const Vector3 &o) const { return Vector3(x - o.x, y - o.y, z - o.z); }
+    Vector3 operator+(const Vector3 &o) const { return Vector3(x + o.x, y + o.y, z + o.z); }
+    Vector3 operator*(float s) const { return Vector3(x * s, y * s, z * s); }
 };
 
 struct Vector2 {
     float x, y;
     Vector2() : x(0.0f), y(0.0f) {}
     Vector2(float _x, float _y) : x(_x), y(_y) {}
+
+    Vector2 operator-(const Vector2 &o) const { return Vector2(x - o.x, y - o.y); }
+    Vector2 operator+(const Vector2 &o) const { return Vector2(x + o.x, y + o.y); }
+    Vector2 operator*(float s) const { return Vector2(x * s, y * s); }
 };
 
 #endif // VECTOR3_H

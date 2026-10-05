@@ -1,11 +1,7 @@
-//
-//  HUDMainWindow.mm
-//  TrollSpeed
-//
-//  Created by Lessica on 2024/1/24.
-//
-
 #import "HUDMainWindow.h"
+#import <objc/runtime.h>
+#import "../esp/drawing_view/esp.h"
+#import "../esp/drawing_view/FloatingMenuView.h"
 
 @implementation HUDMainWindow
 
@@ -19,7 +15,7 @@
 }
 
 - (BOOL)_ignoresHitTest {
-    return YES;
+    return YES; // Must be YES to prevent freezing touches in Free Fire!
 }
 
 - (BOOL)_canBecomeKeyWindow {
@@ -31,4 +27,6 @@
 }
 
 @end
+
+
 

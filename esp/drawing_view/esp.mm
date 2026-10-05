@@ -36,6 +36,13 @@
         self.lineEnabled = YES;
         self.healthEnabled = YES;
         self.nameEnabled = YES;
+        
+        self.aimbotEnabled = NO;
+        self.aimBone = 0; // 0: Head, 1: Chest
+        self.aimFov = 120.0f;
+        self.aimSmooth = 0.25f;
+        self.isFiring = NO;
+        
         _isUpdating = false;
 
         [self startLoop];
@@ -79,6 +86,95 @@
 
     CGContextRef context = UIGraphicsGetCurrentContext();
     if (!context) return;
+
+    // 0. Draw Smart Aimbot FOV Circle & Dynamic Crosshair
+    if (self.aimbotEnabled && self.aimFov > 10.0f) {
+        CGPoint screenCenter = CGPointMake(rect.size.width / 2.0f, rect.size.height / 2.0f);
+        CGRect fovRect = CGRectMake(screenCenter.x - self.aimFov,
+                                    screenCenter.y - self.aimFov,
+                                    self.aimFov * 2.0f,
+                                    self.aimFov * 2.0f);
+        
+        PlayerData bestTarget;
+        Vector2 sCenter = Vector2{(float)screenCenter.x, (float)screenCenter.y};
+        bool isLocked = GameLogic::getInstance().getBestTarget(sCenter, self.aimFov, (int)self.aimBone, bestTarget);
+
+        // Dynamic FOV Circle Color
+        UIColor *fovColor = isLocked 
+            ? [UIColor colorWithRed:1.0f green:0.25f blue:0.45f alpha:0.65f]
+            : [UIColor colorWithRed:0.2f green:0.8f blue:1.0f alpha:0.35f];
+        
+        CGContextSetStrokeColorWithColor(context, fovColor.CGColor);
+        CGContextSetLineWidth(context, isLocked ? 1.5f : 1.0f);
+        CGContextStrokeEllipseInRect(context, fovRect);
+
+        // Center Crosshair (Precision Cross with Dot)
+        UIColor *crossColor = isLocked 
+            ? [UIColor colorWithRed:1.0f green:0.15f blue:0.35f alpha:0.95f]
+            : [UIColor colorWithRed:0.3f green:0.9f blue:1.0f alpha:0.8f];
+        
+        CGContextSetStrokeColorWithColor(context, crossColor.CGColor);
+        CGContextSetLineWidth(context, 1.2f);
+        
+        CGFloat crossSize = 7.0f;
+        CGFloat crossGap = 3.0f;
+        // Top line
+        CGContextMoveToPoint(context, screenCenter.x, screenCenter.y - crossGap);
+        CGContextAddLineToPoint(context, screenCenter.x, screenCenter.y - crossGap - crossSize);
+        // Bottom line
+        CGContextMoveToPoint(context, screenCenter.x, screenCenter.y + crossGap);
+        CGContextAddLineToPoint(context, screenCenter.x, screenCenter.y + crossGap + crossSize);
+        // Left line
+        CGContextMoveToPoint(context, screenCenter.x - crossGap, screenCenter.y);
+        CGContextAddLineToPoint(context, screenCenter.x - crossGap - crossSize, screenCenter.y);
+        // Right line
+        CGContextMoveToPoint(context, screenCenter.x + crossGap, screenCenter.y);
+        CGContextAddLineToPoint(context, screenCenter.x + crossGap + crossSize, screenCenter.y);
+        CGContextStrokePath(context);
+
+        // Center Dot
+        CGContextSetFillColorWithColor(context, crossColor.CGColor);
+        CGContextFillEllipseInRect(context, CGRectMake(screenCenter.x - 2.0f, screenCenter.y - 2.0f, 4.0f, 4.0f));
+
+        if (isLocked) {
+            CGPoint targetPt = (self.aimBone == 0)
+                ? CGPointMake(bestTarget.headScreenPos.x, bestTarget.headScreenPos.y)
+                : CGPointMake((bestTarget.headScreenPos.x + bestTarget.toeScreenPos.x) * 0.5f,
+                              bestTarget.headScreenPos.y + (bestTarget.toeScreenPos.y - bestTarget.headScreenPos.y) * 0.35f);
+            
+            // 1. Draw Aim Snap Line from crosshair to target head
+            CGContextSetStrokeColorWithColor(context, [UIColor colorWithRed:1.0f green:0.2f blue:0.3f alpha:0.9f].CGColor);
+            CGContextSetLineWidth(context, 1.6f);
+            CGContextBeginPath(context);
+            CGContextMoveToPoint(context, screenCenter.x, screenCenter.y);
+            CGContextAddLineToPoint(context, targetPt.x, targetPt.y);
+            CGContextStrokePath(context);
+
+            // 2. Head Lock Target Ring
+            CGFloat lockRingRadius = 11.0f;
+            CGRect lockRingRect = CGRectMake(targetPt.x - lockRingRadius, targetPt.y - lockRingRadius, lockRingRadius * 2.0f, lockRingRadius * 2.0f);
+            CGContextSetStrokeColorWithColor(context, [UIColor colorWithRed:1.0f green:0.15f blue:0.3f alpha:0.95f].CGColor);
+            CGContextSetLineWidth(context, 1.8f);
+            CGContextStrokeEllipseInRect(context, lockRingRect);
+
+            // 3. Locked HUD Badge below crosshair
+            NSString *lockBadge = [NSString stringWithFormat:@"🎯 LOCKED: %s (%.0fm)", bestTarget.name.c_str(), bestTarget.distance];
+            NSDictionary *badgeAttrs = @{
+                NSFontAttributeName: [UIFont boldSystemFontOfSize:10.5f],
+                NSForegroundColorAttributeName: [UIColor colorWithRed:1.0f green:0.3f blue:0.45f alpha:1.0f]
+            };
+            CGSize badgeSize = [lockBadge sizeWithAttributes:badgeAttrs];
+            CGPoint badgePt = CGPointMake(screenCenter.x - (badgeSize.width / 2.0f), screenCenter.y + 16.0f);
+            
+            CGRect bgBadgeRect = CGRectMake(badgePt.x - 4.0f, badgePt.y - 1.0f, badgeSize.width + 8.0f, badgeSize.height + 2.0f);
+            UIBezierPath *bPath = [UIBezierPath bezierPathWithRoundedRect:bgBadgeRect cornerRadius:4.0f];
+            CGContextSetFillColorWithColor(context, [UIColor colorWithWhite:0.0f alpha:0.75f].CGColor);
+            CGContextAddPath(context, bPath.CGPath);
+            CGContextFillPath(context);
+
+            [lockBadge drawAtPoint:badgePt withAttributes:badgeAttrs];
+        }
+    }
 
     const auto& players = GameLogic::getInstance().getPlayers();
     CGPoint topCenter = CGPointMake(rect.size.width / 2.0f, 0.0f);

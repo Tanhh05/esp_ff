@@ -16,6 +16,7 @@
 #import "UIWindow+Private.h"
 
 #import "../esp/drawing_view/esp.h"
+#import "../esp/drawing_view/FloatingMenuView.h"
 #import "UIView+SecureView.h"
 
 
@@ -92,15 +93,14 @@
 
     HUDLandscapeContainerViewController *container = [[HUDLandscapeContainerViewController alloc] init];
 
-    ESP_View *espView = [[ESP_View alloc] initWithFrame:CGRectZero];
+    ESP_View *espView = [ESP_View sharedView];
     espView.translatesAutoresizingMaskIntoConstraints = NO;
     espView.backgroundColor = [UIColor clearColor];
     espView.userInteractionEnabled = NO;
     [espView hideViewFromCapture:NO]; // Hide ESP when taking a screenshot
     
-    
     UIView *containerView = container.view;
-    containerView.userInteractionEnabled = NO;
+    containerView.userInteractionEnabled = YES;
     [containerView addSubview:espView];
 
     [NSLayoutConstraint activateConstraints:@[
@@ -110,8 +110,19 @@
         [espView.bottomAnchor constraintEqualToAnchor:containerView.bottomAnchor]
     ]];
 
+    FloatingMenuView *floatingMenu = [FloatingMenuView sharedMenu];
+    floatingMenu.translatesAutoresizingMaskIntoConstraints = NO;
+    [containerView addSubview:floatingMenu];
+
+    [NSLayoutConstraint activateConstraints:@[
+        [floatingMenu.leadingAnchor constraintEqualToAnchor:containerView.leadingAnchor],
+        [floatingMenu.trailingAnchor constraintEqualToAnchor:containerView.trailingAnchor],
+        [floatingMenu.topAnchor constraintEqualToAnchor:containerView.topAnchor],
+        [floatingMenu.bottomAnchor constraintEqualToAnchor:containerView.bottomAnchor]
+    ]];
+
     self.window = [[HUDMainWindow alloc] initWithFrame:CGRectZero];
-    self.window.userInteractionEnabled = NO;
+    self.window.userInteractionEnabled = YES;
     [self.window setRootViewController:container];
 
     UIInterfaceOrientation curOrientation = [self currentInterfaceOrientation];

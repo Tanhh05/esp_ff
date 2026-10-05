@@ -31,6 +31,9 @@ public:
     const std::vector<PlayerData>& getPlayers() const { return players; }
     std::string getStatusString() const { return statusMsg; }
     
+    bool getBestTarget(Vector2 screenCenter, float fovRadius, int boneType, PlayerData& outTarget);
+    static Vector3 calculateAngle(Vector3 localPos, Vector3 targetPos);
+    
 private:
     mach_port_t gameTask = 0;
     pid_t gamePid = 0;
