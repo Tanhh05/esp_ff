@@ -4,6 +4,8 @@
 #import <Foundation/Foundation.h>
 #import "../drawing_view/esp.h"
 #include <iostream>
+#include <map>
+#include <vector>
 
 bool GameLogic::initialize() {
     const char *proc_names[] = {"freefire", "FreeFire", "freefireth", "FreeFireTH", "Free Fire", "dtsg", NULL};
@@ -66,20 +68,24 @@ static inline uintptr_t StripPAC(uintptr_t ptr) {
 }
 
 void GameLogic::updateData(float screenWidth, float screenHeight) {
-    players.clear();
     if (!gameTask && !initialize()) return;
+    std::vector<PlayerData> newPlayers;
 
     // 1. GameFacade_TypeInfo (0xBB46A50)
     uintptr_t typeInfo = StripPAC(MemoryUtils::read<uintptr_t>(gameTask, unityFrameworkBase + Offsets::GameFacade_TypeInfo));
     if (!typeInfo) {
+        std::lock_guard<std::mutex> lock(dataMutex);
         statusMsg = "Error: Null GameFacade_TypeInfo";
+        players.clear();
         return;
     }
 
     // 2. StaticFields (TypeInfo + 0xB8)
     uintptr_t staticFields = StripPAC(MemoryUtils::read<uintptr_t>(gameTask, typeInfo + Offsets::GameFacade_StaticFields));
     if (!staticFields) {
+        std::lock_guard<std::mutex> lock(dataMutex);
         statusMsg = "Error: Null StaticFields (TypeInfo + 0xB8)";
+        players.clear();
         static int sfLog = 0;
         if (++sfLog % 60 == 0) {
             NSLog(@"[ESP_LOG] [WAIT] TI:0x%llx | SF:0x0 (Waiting for GameFacade static fields)", (unsigned long long)typeInfo);
@@ -216,6 +222,10 @@ void GameLogic::updateData(float screenWidth, float screenHeight) {
             localPos = UnityMath::GetTransformPosition(gameTask, localCamTF);
         }
     }
+    this->cachedCameraMgr = cameraMgr;
+    this->cachedLocalPos = localPos;
+
+
 
     if (playerPointers.empty()) {
         char buf[64];
@@ -271,11 +281,13 @@ void GameLogic::updateData(float screenWidth, float screenHeight) {
 
         Vector3 headPos{0, 0, 0};
         Vector3 toePos{0, 0, 0};
+        uintptr_t headTransform = 0;
+        uintptr_t toeTransform = 0;
         bool hasBones = false;
 
         if (headNode && toeNode) {
-            uintptr_t headTransform = StripPAC(MemoryUtils::read<uintptr_t>(gameTask, headNode + Offsets::ITransformNode_Transform));
-            uintptr_t toeTransform = StripPAC(MemoryUtils::read<uintptr_t>(gameTask, toeNode + Offsets::ITransformNode_Transform));
+            headTransform = StripPAC(MemoryUtils::read<uintptr_t>(gameTask, headNode + Offsets::ITransformNode_Transform));
+            toeTransform = StripPAC(MemoryUtils::read<uintptr_t>(gameTask, toeNode + Offsets::ITransformNode_Transform));
             if (headTransform && toeTransform) {
                 headPos = UnityMath::GetTransformPosition(gameTask, headTransform);
                 toePos = UnityMath::GetTransformPosition(gameTask, toeTransform);
@@ -328,20 +340,88 @@ void GameLogic::updateData(float screenWidth, float screenHeight) {
         float dist = headPos.Distance(localPos);
         if (dist > 350.0f) continue;
 
-        // Health
-        uintptr_t priDataPool = StripPAC(MemoryUtils::read<uintptr_t>(gameTask, player + Offsets::Player_PRIDataPool));
-        int curHP = 100, maxHP = 100;
-        if (priDataPool) {
-            uintptr_t arrayPtr = StripPAC(MemoryUtils::read<uintptr_t>(gameTask, priDataPool + Offsets::IPRIDataPool_Array));
-            if (arrayPtr) {
-                curHP = MemoryUtils::read<int32_t>(gameTask, arrayPtr + Offsets::IPRIDataPool_Item + (0 * 8) + Offsets::IPRIDataPool_Value);
-                maxHP = MemoryUtils::read<int32_t>(gameTask, arrayPtr + Offsets::IPRIDataPool_Item + (1 * 8) + Offsets::IPRIDataPool_Value);
+        // Multi-Path Health (HP) Reader & Real-Time RAM Scanner
+        int curHP = 200, maxHP = 200;
+        bool hpFound = false;
+
+        // Path 1: PRIDataPool Property Objects Scan (+0x10, +0x20 arrays of pointers)
+        for (uint64_t priOff : {0x70ULL, 0x68ULL, 0x78ULL, 0x80ULL}) {
+            uintptr_t priDataPool = StripPAC(MemoryUtils::read<uintptr_t>(gameTask, player + priOff));
+            if (!priDataPool || priDataPool < 0x100000000ULL || priDataPool > 0x7FFFFFFFFFFFULL) continue;
+
+            // Iterate sub-pools (+0x10, +0x20, +0x28)
+            for (uint64_t subOff : {0x10ULL, 0x20ULL, 0x28ULL}) {
+                uintptr_t subPool = StripPAC(MemoryUtils::read<uintptr_t>(gameTask, priDataPool + subOff));
+                if (!subPool || subPool < 0x100000000ULL || subPool > 0x7FFFFFFFFFFFULL) continue;
+
+                // subPool has pointers at +0x20, +0x28, +0x30, +0x38, +0x40, +0x48, +0x50
+                for (uint64_t pOff = 0x20; pOff <= 0x60; pOff += 8) {
+                    uintptr_t propObj = StripPAC(MemoryUtils::read<uintptr_t>(gameTask, subPool + pOff));
+                    if (!propObj || propObj < 0x100000000ULL || propObj > 0x7FFFFFFFFFFFULL) continue;
+
+                    int32_t type = MemoryUtils::read<int32_t>(gameTask, propObj + 0x10);
+                    int32_t val14 = MemoryUtils::read<int32_t>(gameTask, propObj + 0x14);
+                    int32_t val18 = MemoryUtils::read<int32_t>(gameTask, propObj + 0x18);
+                    int32_t val1c = MemoryUtils::read<int32_t>(gameTask, propObj + 0x1c);
+                    int32_t val20 = MemoryUtils::read<int32_t>(gameTask, propObj + 0x20);
+
+                    static int propLogThrottle = 0;
+                    if (++propLogThrottle % 60 == 1) {
+                        NSLog(@"[ESP_LOG] [PROP_OBJ] sub:0x%llx+0x%llx obj:0x%llx | type:%d +0x14:%d +0x18:%d +0x1c:%d +0x20:%d",
+                              subOff, pOff, (unsigned long long)propObj, type, val14, val18, val1c, val20);
+                    }
+
+                    // Look for valid HP value (1..500)
+                    if (val18 >= 1 && val18 <= 500) {
+                        curHP = val18;
+                        maxHP = (val20 >= val18 && val20 <= 500) ? val20 : ((val1c >= val18 && val1c <= 500) ? val1c : 200);
+                        if (maxHP < curHP) maxHP = curHP;
+                        hpFound = true;
+                        break;
+                    } else if (val14 >= 1 && val14 <= 500) {
+                        curHP = val14;
+                        maxHP = 200;
+                        hpFound = true;
+                        break;
+                    }
+                }
+                if (hpFound) break;
             }
+            if (hpFound) break;
         }
 
         uintptr_t namePtr = StripPAC(MemoryUtils::read<uintptr_t>(gameTask, player + Offsets::Player_OriginalNickName));
         std::string nickname = readIl2CppString(namePtr);
         if (nickname.empty()) nickname = "Enemy";
+
+        // Real-Time Memory Delta Damage Tracker (Tracks exact byte that changes when shot)
+        struct PlayerMemSnap {
+            uint32_t words[0x600 / 4];
+            bool ready = false;
+        };
+        static std::map<uintptr_t, PlayerMemSnap> sSnaps;
+        auto& snap = sSnaps[player];
+
+        for (uint64_t off = 0x300; off <= 0x580; off += 4) {
+            uint32_t curWord = MemoryUtils::read<uint32_t>(gameTask, player + off);
+            int idx = (int)(off / 4);
+
+            if (snap.ready) {
+                uint32_t prevWord = snap.words[idx];
+                if (curWord != prevWord) {
+                    int diff = (int)prevWord - (int)curWord;
+                    if (diff > 0 && diff <= 250 && prevWord <= 500 && curWord <= 500) {
+                        NSLog(@"[ESP_LOG] [DAMAGE_HIT_DETECTED] %s | Offset: +0x%llx | HP: %u -> %u (Damage: -%d)",
+                              nickname.c_str(), off, prevWord, curWord, diff);
+                        curHP = (int)curWord;
+                        maxHP = (int)prevWord;
+                        hpFound = true;
+                    }
+                }
+            }
+            snap.words[idx] = curWord;
+        }
+        snap.ready = true;
 
         // Filter out non-player entities (vehicles, props, etc.)
         bool isVehicle = false;
@@ -365,68 +445,26 @@ void GameLogic::updateData(float screenWidth, float screenHeight) {
         pd.name = nickname;
         pd.distance = headPos.Distance(localPos);
         pd.isVisibleOnScreen = true;
+        pd.headTransform = headTransform;
+        pd.toeTransform = toeTransform;
+        pd.playerPtr = player;
 
-        players.push_back(pd);
+        newPlayers.push_back(pd);
     }
 
-    // 8. Smart Aim Lock Target Selection (100% Safe Read-Only Mode)
-    ESP_View *espView = [ESP_View sharedView];
-    if (espView && espView.aimbotEnabled && !players.empty()) {
-        PlayerData bestTarget;
-        Vector2 sCenter = Vector2{screenWidth / 2.0f, screenHeight / 2.0f};
-        float aimFov = espView.aimFov;
-        int aimBone = (int)espView.aimBone;
-
-        if (getBestTarget(sCenter, aimFov, aimBone, bestTarget)) {
-            static int probeThrottle = 0;
-            if (++probeThrottle % 30 == 0) {
-                NSLog(@"[ESP_LOG] [SMART_AIM_LOCK] Target: %s (dist:%.1fm) -> HeadScreen:(%.1f, %.1f)",
-                      bestTarget.name.c_str(), bestTarget.distance, bestTarget.headScreenPos.x, bestTarget.headScreenPos.y);
-            }
-        }
+    {
+        std::lock_guard<std::mutex> lock(dataMutex);
+        this->players = std::move(newPlayers);
+        this->cachedScreenWidth = screenWidth;
+        this->cachedScreenHeight = screenHeight;
     }
 
-    char statusBuf[128];
-    snprintf(statusBuf, sizeof(statusBuf), "Active ESP: %zu Players", players.size());
-    statusMsg = statusBuf;
-}
-
-bool GameLogic::getBestTarget(Vector2 screenCenter, float fovRadius, int boneType, PlayerData& outTarget) {
-    float minDistance = fovRadius;
-    bool found = false;
-
-    for (const auto& p : players) {
-        if (!p.isVisibleOnScreen) continue;
-        if (p.currentHP <= 0) continue; // Skip dead targets
-
-        Vector2 targetScreenPos = p.headScreenPos;
-        if (boneType == 1) {
-            // Chest is roughly 35% down from head to toe
-            targetScreenPos.x = (p.headScreenPos.x + p.toeScreenPos.x) * 0.5f;
-            targetScreenPos.y = p.headScreenPos.y + (p.toeScreenPos.y - p.headScreenPos.y) * 0.35f;
-        }
-
-        float dx = targetScreenPos.x - screenCenter.x;
-        float dy = targetScreenPos.y - screenCenter.y;
-        float dist = sqrtf(dx * dx + dy * dy);
-
-        if (dist <= fovRadius && dist < minDistance) {
-            minDistance = dist;
-            outTarget = p;
-            found = true;
-        }
+    {
+        std::lock_guard<std::mutex> lock(dataMutex);
+        char statusBuf[128];
+        snprintf(statusBuf, sizeof(statusBuf), "Active ESP: %zu Players", players.size());
+        statusMsg = statusBuf;
     }
-    return found;
 }
 
-Vector3 GameLogic::calculateAngle(Vector3 localPos, Vector3 targetPos) {
-    Vector3 delta = targetPos - localPos;
-    float hyp = sqrtf(delta.x * delta.x + delta.z * delta.z);
-    
-    // Euler angles in degrees
-    float pitch = -atan2f(delta.y, hyp) * (180.0f / (float)M_PI);
-    float yaw = atan2f(delta.x, delta.z) * (180.0f / (float)M_PI);
-    if (yaw < 0.0f) yaw += 360.0f;
-    
-    return Vector3{pitch, yaw, 0.0f};
-}
+

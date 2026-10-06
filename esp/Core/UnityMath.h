@@ -217,6 +217,61 @@ public:
         float rotBuf[4] = {rot.x, rot.y, rot.z, rot.w};
         return MemoryUtils::write_raw(task, rotAddr, rotBuf, sizeof(rotBuf));
     }
+
+    static bool SetTransformScale(mach_port_t task, uintptr_t transformPtr, float scaleFactor) {
+        if (!task || !transformPtr || scaleFactor <= 0.01f || scaleFactor > 20.0f) return false;
+
+        auto stripPAC = [](uintptr_t ptr) -> uintptr_t {
+            if (!ptr) return 0;
+            return ptr & 0x0000007FFFFFFFFFULL;
+        };
+
+        uintptr_t nativeTF = stripPAC(MemoryUtils::read<uintptr_t>(task, transformPtr + 0x10));
+        if (!nativeTF || nativeTF < 0x100000000) {
+            nativeTF = transformPtr;
+        }
+
+        uintptr_t matrix = stripPAC(MemoryUtils::read<uintptr_t>(task, nativeTF + 0x38));
+        int32_t index = MemoryUtils::read<int32_t>(task, nativeTF + 0x40);
+        if (!matrix || index < 0 || index > 100000) {
+            return false;
+        }
+
+        uintptr_t matrix_list = stripPAC(MemoryUtils::read<uintptr_t>(task, matrix + 0x18));
+        if (!matrix_list) return false;
+
+        // TMatrix scale offset is +0x20 (32 bytes from start: posX..W (16), rotX..W (16), scaleX..W (16))
+        uintptr_t scaleAddr = matrix_list + (index * 48) + 32;
+        float scaleBuf[3] = {scaleFactor, scaleFactor, scaleFactor};
+        return MemoryUtils::write_raw(task, scaleAddr, scaleBuf, sizeof(scaleBuf));
+    }
+
+    static bool SetTransformPosition(mach_port_t task, uintptr_t transformPtr, Vector3 localPos) {
+        if (!task || !transformPtr) return false;
+
+        auto stripPAC = [](uintptr_t ptr) -> uintptr_t {
+            if (!ptr) return 0;
+            return ptr & 0x0000007FFFFFFFFFULL;
+        };
+
+        uintptr_t nativeTF = stripPAC(MemoryUtils::read<uintptr_t>(task, transformPtr + 0x10));
+        if (!nativeTF || nativeTF < 0x100000000) {
+            nativeTF = transformPtr;
+        }
+
+        uintptr_t matrix = stripPAC(MemoryUtils::read<uintptr_t>(task, nativeTF + 0x38));
+        int32_t index = MemoryUtils::read<int32_t>(task, nativeTF + 0x40);
+        if (!matrix || index < 0 || index > 100000) {
+            return false;
+        }
+
+        uintptr_t matrix_list = stripPAC(MemoryUtils::read<uintptr_t>(task, matrix + 0x18));
+        if (!matrix_list) return false;
+
+        uintptr_t posAddr = matrix_list + (index * 48);
+        float posBuf[3] = {localPos.x, localPos.y, localPos.z};
+        return MemoryUtils::write_raw(task, posAddr, posBuf, sizeof(posBuf));
+    }
 };
 
 #endif // UNITY_MATH_H

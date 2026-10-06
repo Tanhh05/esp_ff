@@ -11,6 +11,7 @@
 @property (nonatomic, readonly) BOOL isInRangeLift; 
 @property (nonatomic, readonly) BOOL isCancel; 
 + (instancetype)representationWithHIDEvent:(IOHIDEventRef)event hidStreamIdentifier:(NSString *)identifier;
++ (instancetype)touchRepresentationWithHandType:(unsigned int)type location:(CGPoint)location;
 - (AXEventHandInfoRepresentation *)handInfo;
 - (CGPoint)location;
 @end

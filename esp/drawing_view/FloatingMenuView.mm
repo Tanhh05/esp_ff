@@ -63,11 +63,6 @@
     UISwitch *_healthSwitch;
     UISwitch *_nameSwitch;
     
-    UISwitch *_aimbotSwitch;
-    UISegmentedControl *_aimBoneSegment;
-    UISlider *_fovSlider;
-    UILabel *_fovValueLabel;
-    
     BOOL _isDirectDragging;
     CGPoint _directDragStartPoint;
     CGPoint _directDragStartCenter;
@@ -178,8 +173,8 @@
     [self addSubview:_bubbleButton];
 
     // 2. Menu Card (Glassmorphism design)
-    CGFloat menuW = 230.0f;
-    CGFloat menuH = 345.0f;
+    CGFloat menuW = 220.0f;
+    CGFloat menuH = 205.0f;
     _menuCard = [[UIView alloc] initWithFrame:CGRectMake(20, 20, menuW, menuH)];
     _menuCard.backgroundColor = [UIColor colorWithRed:0.10f green:0.11f blue:0.16f alpha:0.95f];
     _menuCard.layer.cornerRadius = 18.0f;
@@ -195,7 +190,7 @@
 
     // Title
     UILabel *titleLabel = [[UILabel alloc] initWithFrame:CGRectMake(16, 12, menuW - 32, 22)];
-    titleLabel.text = @"ESP & AIMBOT SETTINGS";
+    titleLabel.text = @"ESP VISUAL SETTINGS";
     titleLabel.textColor = [UIColor colorWithRed:1.0f green:0.55f blue:0.75f alpha:1.0f];
     titleLabel.font = [UIFont boldSystemFontOfSize:12.5f];
     titleLabel.textAlignment = NSTextAlignmentCenter;
@@ -217,60 +212,14 @@
     [_menuCard addSubview:div1];
 
     // ESP Switches
-    CGFloat curY = 42.0f;
+    CGFloat curY = 44.0f;
     _boxSwitch = [self createToggleRowInMenu:_menuCard y:curY title:@"Box ESP" selector:@selector(onToggleChanged:) defaultOn:[ESP_View sharedView].boxEnabled];
-    curY += 36.0f;
+    curY += 38.0f;
     _lineSwitch = [self createToggleRowInMenu:_menuCard y:curY title:@"Line ESP" selector:@selector(onToggleChanged:) defaultOn:[ESP_View sharedView].lineEnabled];
-    curY += 36.0f;
+    curY += 38.0f;
     _healthSwitch = [self createToggleRowInMenu:_menuCard y:curY title:@"Health Bar" selector:@selector(onToggleChanged:) defaultOn:[ESP_View sharedView].healthEnabled];
-    curY += 36.0f;
+    curY += 38.0f;
     _nameSwitch = [self createToggleRowInMenu:_menuCard y:curY title:@"Name & Dist" selector:@selector(onToggleChanged:) defaultOn:[ESP_View sharedView].nameEnabled];
-    curY += 38.0f;
-
-    // Divider 2
-    UIView *div2 = [[UIView alloc] initWithFrame:CGRectMake(16, curY, menuW - 32, 1)];
-    div2.backgroundColor = [UIColor colorWithWhite:0.25f alpha:0.6f];
-    div2.userInteractionEnabled = NO;
-    [_menuCard addSubview:div2];
-    curY += 8.0f;
-
-    // Aimbot Switches & Controls
-    _aimbotSwitch = [self createToggleRowInMenu:_menuCard y:curY title:@"Aimbot Lock" selector:@selector(onAimbotToggleChanged:) defaultOn:[ESP_View sharedView].aimbotEnabled];
-    curY += 40.0f;
-
-    // Aim Bone Selector
-    UILabel *boneLbl = [[UILabel alloc] initWithFrame:CGRectMake(16, curY + 2, 70, 24)];
-    boneLbl.text = @"Aim Bone";
-    boneLbl.textColor = [UIColor whiteColor];
-    boneLbl.font = [UIFont systemFontOfSize:13.5f weight:UIFontWeightMedium];
-    boneLbl.userInteractionEnabled = NO;
-    [_menuCard addSubview:boneLbl];
-
-    _aimBoneSegment = [[UISegmentedControl alloc] initWithItems:@[@"Head", @"Chest"]];
-    _aimBoneSegment.frame = CGRectMake(menuW - 126, curY, 110, 26);
-    _aimBoneSegment.selectedSegmentIndex = [ESP_View sharedView].aimBone;
-    _aimBoneSegment.selectedSegmentTintColor = [UIColor colorWithRed:1.0f green:0.3f blue:0.5f alpha:0.85f];
-    [_aimBoneSegment setTitleTextAttributes:@{NSForegroundColorAttributeName: [UIColor whiteColor], NSFontAttributeName: [UIFont systemFontOfSize:11.5f weight:UIFontWeightBold]} forState:UIControlStateNormal];
-    [_aimBoneSegment addTarget:self action:@selector(onBoneChanged:) forControlEvents:UIControlEventValueChanged];
-    [_menuCard addSubview:_aimBoneSegment];
-    curY += 38.0f;
-
-    // FOV Slider & Label
-    _fovValueLabel = [[UILabel alloc] initWithFrame:CGRectMake(16, curY, menuW - 32, 18)];
-    _fovValueLabel.text = [NSString stringWithFormat:@"FOV Radius: %.0fpx", [ESP_View sharedView].aimFov];
-    _fovValueLabel.textColor = [UIColor colorWithWhite:0.85f alpha:1.0f];
-    _fovValueLabel.font = [UIFont systemFontOfSize:12.0f weight:UIFontWeightMedium];
-    _fovValueLabel.userInteractionEnabled = NO;
-    [_menuCard addSubview:_fovValueLabel];
-    curY += 20.0f;
-
-    _fovSlider = [[UISlider alloc] initWithFrame:CGRectMake(16, curY, menuW - 32, 24)];
-    _fovSlider.minimumValue = 40.0f;
-    _fovSlider.maximumValue = 300.0f;
-    _fovSlider.value = [ESP_View sharedView].aimFov;
-    _fovSlider.minimumTrackTintColor = [UIColor colorWithRed:1.0f green:0.35f blue:0.6f alpha:1.0f];
-    [_fovSlider addTarget:self action:@selector(onFovChanged:) forControlEvents:UIControlEventValueChanged];
-    [_menuCard addSubview:_fovSlider];
 
     [self addSubview:_menuCard];
 }
@@ -304,24 +253,6 @@
     esp.nameEnabled = _nameSwitch.isOn;
     NSLog(@"[ESP_LOG] [MENU] onToggleChanged -> Box:%d Line:%d HP:%d Name:%d",
           (int)esp.boxEnabled, (int)esp.lineEnabled, (int)esp.healthEnabled, (int)esp.nameEnabled);
-}
-
-- (void)onAimbotToggleChanged:(UISwitch *)sender {
-    ESP_View *esp = [ESP_View sharedView];
-    esp.aimbotEnabled = _aimbotSwitch.isOn;
-    NSLog(@"[ESP_LOG] [MENU] onAimbotToggleChanged -> Aimbot:%d", (int)esp.aimbotEnabled);
-}
-
-- (void)onBoneChanged:(UISegmentedControl *)sender {
-    ESP_View *esp = [ESP_View sharedView];
-    esp.aimBone = sender.selectedSegmentIndex;
-    NSLog(@"[ESP_LOG] [MENU] onBoneChanged -> Bone:%ld (%s)", (long)esp.aimBone, esp.aimBone == 0 ? "Head" : "Chest");
-}
-
-- (void)onFovChanged:(UISlider *)sender {
-    ESP_View *esp = [ESP_View sharedView];
-    esp.aimFov = sender.value;
-    _fovValueLabel.text = [NSString stringWithFormat:@"FOV Radius: %.0fpx", esp.aimFov];
 }
 
 - (void)handleBubbleDrag:(CGPoint)newCenter {
@@ -379,10 +310,6 @@
     _lineSwitch.on = [ESP_View sharedView].lineEnabled;
     _healthSwitch.on = [ESP_View sharedView].healthEnabled;
     _nameSwitch.on = [ESP_View sharedView].nameEnabled;
-    _aimbotSwitch.on = [ESP_View sharedView].aimbotEnabled;
-    _aimBoneSegment.selectedSegmentIndex = [ESP_View sharedView].aimBone;
-    _fovSlider.value = [ESP_View sharedView].aimFov;
-    _fovValueLabel.text = [NSString stringWithFormat:@"FOV Radius: %.0fpx", [ESP_View sharedView].aimFov];
 
     if (animated) {
         _menuCard.alpha = 0.0f;
@@ -456,22 +383,8 @@
         if (CGRectContainsPoint(cardHitBounds, pt)) {
             CGPoint ptInMenu = [self convertPoint:pt toView:_menuCard];
             CGFloat menuW = _menuCard.bounds.size.width;
-            CGFloat menuH = _menuCard.bounds.size.height;
 
-            // Row 7: FOV Slider (supports continuous drag on Began AND Moved!)
-            if (ptInMenu.y >= 268.0f && ptInMenu.y <= menuH + 15.0f) {
-                CGFloat sliderW = menuW - 32.0f;
-                CGFloat relativeX = ptInMenu.x - 16.0f;
-                if (relativeX < 0.0f) relativeX = 0.0f;
-                if (relativeX > sliderW) relativeX = sliderW;
-                float ratio = (float)(relativeX / sliderW);
-                float newFov = _fovSlider.minimumValue + ratio * (_fovSlider.maximumValue - _fovSlider.minimumValue);
-                _fovSlider.value = newFov;
-                [self onFovChanged:_fovSlider];
-                return YES;
-            }
-
-            // Other buttons trigger on Began
+            // Buttons trigger on Began
             if (phase == UITouchPhaseBegan) {
                 // Close button (top right)
                 if (ptInMenu.y <= 38.0f && ptInMenu.x >= menuW - 44.0f) {
@@ -480,53 +393,32 @@
                     return YES;
                 }
 
-                // Row 1: Box ESP (38..74)
-                if (ptInMenu.y >= 38.0f && ptInMenu.y < 74.0f) {
+                // Row 1: Box ESP (38..78)
+                if (ptInMenu.y >= 38.0f && ptInMenu.y < 78.0f) {
                     [_boxSwitch setOn:!_boxSwitch.isOn animated:YES];
                     [self onToggleChanged:_boxSwitch];
                     NSLog(@"[ESP_LOG] [MENU_TOUCH] Toggled Box ESP -> %d", (int)_boxSwitch.isOn);
                     return YES;
                 }
-                // Row 2: Line ESP (74..110)
-                if (ptInMenu.y >= 74.0f && ptInMenu.y < 110.0f) {
+                // Row 2: Line ESP (78..116)
+                if (ptInMenu.y >= 78.0f && ptInMenu.y < 116.0f) {
                     [_lineSwitch setOn:!_lineSwitch.isOn animated:YES];
                     [self onToggleChanged:_lineSwitch];
                     NSLog(@"[ESP_LOG] [MENU_TOUCH] Toggled Line ESP -> %d", (int)_lineSwitch.isOn);
                     return YES;
                 }
-                // Row 3: Health Bar (110..146)
-                if (ptInMenu.y >= 110.0f && ptInMenu.y < 146.0f) {
+                // Row 3: Health Bar (116..154)
+                if (ptInMenu.y >= 116.0f && ptInMenu.y < 154.0f) {
                     [_healthSwitch setOn:!_healthSwitch.isOn animated:YES];
                     [self onToggleChanged:_healthSwitch];
                     NSLog(@"[ESP_LOG] [MENU_TOUCH] Toggled Health Bar -> %d", (int)_healthSwitch.isOn);
                     return YES;
                 }
-                // Row 4: Name & Dist (146..186)
-                if (ptInMenu.y >= 146.0f && ptInMenu.y < 186.0f) {
+                // Row 4: Name & Dist (154..195)
+                if (ptInMenu.y >= 154.0f && ptInMenu.y < 195.0f) {
                     [_nameSwitch setOn:!_nameSwitch.isOn animated:YES];
                     [self onToggleChanged:_nameSwitch];
                     NSLog(@"[ESP_LOG] [MENU_TOUCH] Toggled Name & Dist -> %d", (int)_nameSwitch.isOn);
-                    return YES;
-                }
-                // Row 5: Aimbot Lock (186..228)
-                if (ptInMenu.y >= 186.0f && ptInMenu.y < 228.0f) {
-                    [_aimbotSwitch setOn:!_aimbotSwitch.isOn animated:YES];
-                    [self onAimbotToggleChanged:_aimbotSwitch];
-                    NSLog(@"[ESP_LOG] [MENU_TOUCH] Toggled Aimbot Lock -> %d", (int)_aimbotSwitch.isOn);
-                    return YES;
-                }
-                // Row 6: Aim Bone (228..268)
-                if (ptInMenu.y >= 228.0f && ptInMenu.y < 268.0f) {
-                    if (ptInMenu.x >= menuW - 130.0f) {
-                        if (ptInMenu.x < menuW - 72.0f) {
-                            _aimBoneSegment.selectedSegmentIndex = 0; // Head
-                        } else {
-                            _aimBoneSegment.selectedSegmentIndex = 1; // Chest
-                        }
-                    } else {
-                        _aimBoneSegment.selectedSegmentIndex = (_aimBoneSegment.selectedSegmentIndex == 0) ? 1 : 0;
-                    }
-                    [self onBoneChanged:_aimBoneSegment];
                     return YES;
                 }
             }
@@ -539,6 +431,3 @@
 }
 
 @end
-
-
-

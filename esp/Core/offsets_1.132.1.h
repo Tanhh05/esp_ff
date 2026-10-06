@@ -18,6 +18,14 @@ namespace Offsets {
     // Native Camera WorldToClipMatrix (Combined View-Projection 4x4 matrix) at 0x100
     constexpr uint64_t Camera_ViewMatrix_Array = 0x100;
 
+    // Verified Camera Euler Angle Offsets in CameraControllerManager
+    constexpr uint64_t CameraControllerManager_Yaw = 0xC8;
+    constexpr uint64_t CameraControllerManager_Pitch = 0xCC;
+    constexpr uint64_t CameraControllerManager_Yaw2 = 0xEC;
+    constexpr uint64_t CameraControllerManager_Pitch2 = 0xF0;
+    constexpr uint64_t CameraControllerManager_Yaw3 = 0x114;
+    constexpr uint64_t CameraControllerManager_Pitch3 = 0x118;
+
     // 3. Match -> Players & LocalPlayer
     constexpr uint64_t Match_LocalPlayer = 0xD8;
     constexpr uint64_t Match_PlayerList_List = 0x158;

@@ -22,6 +22,11 @@
 #import "../esp/Core/GameLogic.h"
 #import <mach/mach_time.h>
 
+@interface AXBackBoardServer : NSObject
++ (instancetype)server;
+- (void)postEvent:(id)event systemEvent:(BOOL)systemEvent;
+@end
+
 #ifdef __LP64__
 
 typedef double IOHIDFloat;
@@ -70,6 +75,8 @@ extern "C" {
         IOOptionBits options);
     void IOHIDEventSetIntegerValue(IOHIDEventRef event, uint32_t field, int value);
 }
+
+static CGFloat s_screenW = 736.0f, s_screenH = 414.0f, s_sw = 414.0f, s_sh = 736.0f;
 
 void _HUDEventCallback(void *target, void *refcon, IOHIDServiceRef service, IOHIDEventRef event);
 
@@ -164,6 +171,20 @@ void _HUDEventCallback(void *target, void *refcon, IOHIDServiceRef service, IOHI
         }
     }
 
+    // Normalize rawLoc to points immediately
+    CGRect screenBounds = [UIScreen mainScreen].bounds;
+    CGFloat sw = MIN(screenBounds.size.width, screenBounds.size.height);
+    CGFloat sh = MAX(screenBounds.size.width, screenBounds.size.height);
+
+    if (rawLoc.x <= 1.05f && rawLoc.y <= 1.05f && (rawLoc.x > 0.0f || rawLoc.y > 0.0f)) {
+        rawLoc.x *= sw;
+        rawLoc.y *= sh;
+    }
+
+    CGFloat screenW = sh; // Landscape Width (e.g. 736)
+    CGFloat screenH = sw; // Landscape Height (e.g. 414)
+    CGPoint pLandscape = CGPointMake(rawLoc.y, sw - rawLoc.x);
+
     // 2. Count active fingers from IOHIDEvent children AND AXEvent paths
     CFArrayRef children = IOHIDEventGetChildren(event);
     CFIndex childCount = children ? CFArrayGetCount(children) : 0;
@@ -196,10 +217,18 @@ void _HUDEventCallback(void *target, void *refcon, IOHIDServiceRef service, IOHI
     }
 
     if (isTouchDown || isLift) {
-        NSLog(@"[ESP_LOG] [TOUCH] down:%d lift:%d fingers:%u children:%ld rep:%p loc:(%.1f, %.1f)",
+        NSLog(@"[ESP_LOG] [TOUCH] down:%d lift:%d fingers:%u children:%ld rep:%p loc:(%.1f, %.1f) ls:(%.1f, %.1f)",
               (int)isTouchDown, (int)isLift, currentFingers,
-              childCount, rep, rawLoc.x, rawLoc.y);
+              childCount, rep, rawLoc.x, rawLoc.y, pLandscape.x, pLandscape.y);
     }
+
+    // Update screen dimension cache
+    s_screenW = screenW;
+    s_screenH = screenH;
+    s_sw = sw;
+    s_sh = sh;
+
+
 
     // 3. Detect Multi-Finger (2 or 3 fingers) Double Tap gesture
     static double s_lastTap1Time = 0.0;
@@ -261,15 +290,7 @@ void _HUDEventCallback(void *target, void *refcon, IOHIDServiceRef service, IOHI
     // 4. If point is zero, nothing more to dispatch
     if (CGPointEqualToPoint(rawLoc, CGPointZero)) return;
 
-    // Ensure rawLoc is in points (if normalized 0..1, multiply by screen size)
-    CGRect screenBounds = [UIScreen mainScreen].bounds;
-    CGFloat sw = MIN(screenBounds.size.width, screenBounds.size.height);
-    CGFloat sh = MAX(screenBounds.size.width, screenBounds.size.height);
-
-    if (rawLoc.x <= 1.05f && rawLoc.y <= 1.05f && (rawLoc.x > 0.0f || rawLoc.y > 0.0f)) {
-        rawLoc.x *= sw;
-        rawLoc.y *= sh;
-    }
+    // rawLoc is already in screen points (sw, sh)
 
     UITouchPhase phase = UITouchPhaseMoved;
     if (isTouchDown) phase = UITouchPhaseBegan;
@@ -327,87 +348,7 @@ void _HUDEventCallback(void *target, void *refcon, IOHIDServiceRef service, IOHI
         return;
     }
 
-    // 5. Aimbot Touch Drag Assist (Active during gameplay when Menu is closed)
-    ESP_View *espView = [ESP_View sharedView];
-    if (espView && espView.aimbotEnabled) {
-        CGFloat screenW = sh; // Landscape Width (e.g. 736)
-        CGFloat screenH = sw; // Landscape Height (e.g. 414)
 
-        // Landscape Right position of player's touch
-        CGPoint pLandscape = CGPointMake(rawLoc.y, sw - rawLoc.x);
-
-        // Check if player is touching the right half / aim & shoot area (X > 38% of screen)
-        BOOL isAimingZone = (pLandscape.x > screenW * 0.38f);
-        BOOL isTouchActive = (isTouchDown || isMove || touchVal == 1);
-
-        if (isAimingZone && isTouchActive) {
-            PlayerData bestTarget;
-            Vector2 sCenter = Vector2{(float)(screenW / 2.0f), (float)(screenH / 2.0f)};
-            float aimFov = espView.aimFov;
-            int aimBone = (int)espView.aimBone;
-
-            if (GameLogic::getInstance().getBestTarget(sCenter, aimFov, aimBone, bestTarget)) {
-                CGPoint targetPt = (aimBone == 0)
-                    ? CGPointMake(bestTarget.headScreenPos.x, bestTarget.headScreenPos.y)
-                    : CGPointMake((bestTarget.headScreenPos.x + bestTarget.toeScreenPos.x) * 0.5f,
-                                  bestTarget.headScreenPos.y + (bestTarget.toeScreenPos.y - bestTarget.headScreenPos.y) * 0.35f);
-
-                float deltaX = (float)(targetPt.x - (screenW / 2.0f));
-                float deltaY = (float)(targetPt.y - (screenH / 2.0f));
-                float dist = sqrtf(deltaX * deltaX + deltaY * deltaY);
-
-                if (dist > 2.5f && dist <= aimFov) {
-                    float smooth = espView.aimSmooth;
-                    if (smooth <= 0.01f) smooth = 0.22f;
-
-                    float stepX = deltaX * smooth;
-                    float stepY = deltaY * smooth;
-
-                    // Limit step to keep movement natural and avoid overshooting
-                    float maxStep = 16.0f;
-                    if (stepX > maxStep) stepX = maxStep;
-                    if (stepX < -maxStep) stepX = -maxStep;
-                    if (stepY > maxStep) stepY = maxStep;
-                    if (stepY < -maxStep) stepY = -maxStep;
-
-                    // Convert drag destination to portrait hardware coords
-                    CGFloat dragLsX = pLandscape.x + stepX;
-                    CGFloat dragLsY = pLandscape.y + stepY;
-                    CGFloat dragPortX = sw - dragLsY;
-                    CGFloat dragPortY = dragLsX;
-
-                    uint64_t abTime = mach_absolute_time();
-                    AbsoluteTime timeStamp;
-                    timeStamp.hi = (UInt32)(abTime >> 32);
-                    timeStamp.lo = (UInt32)(abTime);
-
-                    static IOHIDEventSystemClientRef s_aimSenderClient = NULL;
-                    static dispatch_once_t s_aimOnce;
-                    dispatch_once(&s_aimOnce, ^{
-                        s_aimSenderClient = IOHIDEventSystemClientCreate(kCFAllocatorDefault);
-                    });
-
-                    IOHIDEventRef dragEvent = IOHIDEventCreateDigitizerFingerEventWithQuality(
-                        kCFAllocatorDefault,
-                        timeStamp,
-                        1, // finger index 1
-                        2, // identity
-                        kIOHIDDigitizerEventPosition,
-                        (IOHIDFloat)dragPortX,
-                        (IOHIDFloat)dragPortY,
-                        0.0, 0, 0, 5.0, 5.0, 1.0, 1.0, 1.0, true, true, 0);
-
-                    if (dragEvent) {
-                        IOHIDEventSetIntegerValue(dragEvent, kIOHIDEventFieldDigitizerIsDisplayIntegrated, 1);
-                        if (s_aimSenderClient) {
-                            IOHIDEventSystemClientDispatchEvent(s_aimSenderClient, dragEvent);
-                        }
-                        CFRelease(dragEvent);
-                    }
-                }
-            }
-        }
-    }
 }
 
 
